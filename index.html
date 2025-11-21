@@ -38,7 +38,7 @@
         import { 
             Settings, Users, Briefcase, ListTodo, ClipboardList, BarChart3, User, LogOut, 
             ArrowLeft, Plus, Check, Building, Trash2, Pencil, X, Calendar as CalendarIcon, 
-            Flag, AlertTriangle, Lock, ShieldCheck, UserCircle, UserPlus, Eye, Crown, Star, Clock
+            Flag, AlertTriangle, Lock, ShieldCheck, UserCircle, UserPlus, Eye, Crown, Star, Clock, UserCheck
         } from "https://esm.sh/lucide-react@0.292.0";
 
         const { useState, useEffect, useMemo } = React;
@@ -61,7 +61,6 @@
         const db = getFirestore(app);
         const auth = getAuth(app);
         
-        // App Secundária para criar usuários (Admin criando Funcionario) sem deslogar
         const secondaryApp = initializeApp(firebaseConfig, "SecondaryApp");
         const secondaryAuth = getAuth(secondaryApp);
 
@@ -86,6 +85,7 @@
             const colors = {
                 secondary: "bg-white text-gray-700 border border-gray-300 hover:bg-gray-50",
                 danger: "bg-red-50 text-red-600 border border-red-200 hover:bg-red-100",
+                success: "bg-green-600 text-white hover:bg-green-700 shadow-sm",
                 ghost: "text-gray-500 hover:bg-gray-100 border-transparent",
                 primary: "bg-indigo-600 text-white hover:bg-indigo-700 shadow-sm"
             };
@@ -132,7 +132,6 @@
                     if (isRegistering) {
                         const cred = await createUserWithEmailAndPassword(auth, email, password);
                         const isSuper = SUPER_ADMINS.includes(email);
-                        // Ao registrar, approved é false (a menos que seja super admin)
                         await setDoc(doc(db, `artifacts/${appId}/public/data/funcionarios`, cred.user.uid), {
                             id: cred.user.uid, 
                             nome: name, 
@@ -140,7 +139,7 @@
                             isAdmin: isSuper, 
                             cargoId: '', 
                             clienteIds: [], 
-                            approved: isSuper, // SUPER ADMIN já nasce aprovado, outros não
+                            approved: isSuper, // SUPER ADMIN nasce aprovado
                             timestamp: serverTimestamp()
                         });
                     } else {
@@ -303,7 +302,7 @@
             );
         };
 
-        // --- VALIDAÇÃO DE LANÇAMENTO (COM INPUT) ---
+        // --- VALIDAÇÃO DE LANÇAMENTO ---
         const ValidacaoLancamento = ({ db, userId, lancamentos, atividadesBase, funcionarios }) => {
             const pendentes = useMemo(() => lancamentos.filter(l => l.status === 'Pendente'), [lancamentos]);
             const [scoreMap, setScoreMap] = useState({});
@@ -373,7 +372,7 @@
             );
         };
 
-        // --- FORMULÁRIO DE ATIVIDADE BASE (COMPLETO) ---
+        // --- ATIVIDADES BASE FORM ---
         const AtividadeBaseForm = ({ db, userId, cargos, atividadesBase }) => {
             const [nome, setNome] = useState(''); 
             const [cargoId, setCargoId] = useState(''); 
@@ -497,6 +496,10 @@
             const handleAdd = async (col, data) => addDoc(collection(db, getPublicCollectionPath(col)), { ...data, criadoPor: userId, timestamp: serverTimestamp() });
             const handleEdit = async (col, id, data) => setDoc(doc(db, getPublicCollectionPath(col), id), data, { merge: true });
             const handleDel = async (col, id) => { if(confirm('Excluir?')) deleteDoc(doc(db, getPublicCollectionPath(col), id)); };
+            const handleVal = async (l, score) => setDoc(doc(db, getPublicCollectionPath('lancamentos'), l.id), { status: 'Validado', pontuacaoAtribuida: score, validadorId: userId }, {merge:true});
+
+            // Filtra usuários pendentes
+            const pendingUsers = useMemo(() => funcionarios.filter(f => !f.approved && !f.isAdmin), [funcionarios]);
 
             return (
                 <div className="p-6 min-h-screen max-w-7xl mx-auto">
@@ -514,20 +517,48 @@
 
                     {tab==='validacao' && (
                         <Card title="Pendentes" icon={ClipboardList}>
-                            <ValidacaoLancamento db={db} userId={userId} lancamentos={lancamentos} atividadesBase={atividades} funcionarios={funcionarios} />
+                            <div className="space-y-4">
+                                {lancamentos.filter(l=>l.status==='Pendente').map(l => {
+                                    const atv = atividades.find(a=>a.id===l.atividadeBaseId);
+                                    const func = funcionarios.find(f=>f.id===l.funcionarioId);
+                                    return <div key={l.id} className="flex justify-between items-center p-3 border rounded"><div><p className="font-bold">{atv?.nome}</p><p className="text-sm">{func?.nome} - {formatDate(l.dataConclusao)}</p></div><div className="flex gap-2"><Button size="sm" onClick={()=>handleVal(l, atv?.pontuacaoMaxima)} icon={Check}>Validar (Max)</Button></div></div>
+                                })}
+                                {lancamentos.filter(l=>l.status==='Pendente').length === 0 && <p className="text-center text-gray-500">Nada pendente.</p>}
+                            </div>
                         </Card>
                     )}
 
                     {tab==='cadastros' && (
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            {/* ÁREA DE APROVAÇÃO DE PENDENTES */}
+                            {pendingUsers.length > 0 && (
+                                <div className="col-span-1 md:col-span-2">
+                                    <Card title="Solicitações de Acesso" icon={UserPlus} className="bg-yellow-50 border-yellow-200">
+                                        <div className="space-y-2">
+                                            {pendingUsers.map(f => (
+                                                <div key={f.id} className="flex justify-between items-center p-3 bg-white rounded border border-yellow-200">
+                                                    <div>
+                                                        <span className="font-bold text-gray-800">{f.nome}</span>
+                                                        <span className="text-sm text-gray-500 ml-2">({f.email})</span>
+                                                        <span className="ml-2 text-xs bg-yellow-100 text-yellow-800 px-2 py-0.5 rounded-full font-bold">Novo</span>
+                                                    </div>
+                                                    <Button size="sm" type="success" icon={Check} onClick={()=>{setEditingUser(f); setShowUserModal(true);}}>Aprovar e Configurar</Button>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </Card>
+                                </div>
+                            )}
+
                             <SimpleForm title="Cargos" onAdd={n=>handleAdd('cargos',{nome:n})} onEdit={(id,n)=>handleEdit('cargos',id,{nome:n})} list={cargos} onDel={id=>handleDel('cargos',id)} />
                             <AtividadeBaseForm db={db} userId={userId} cargos={cargos} atividadesBase={atividades} />
                             <SimpleForm title="Clientes" onAdd={n=>handleAdd('clientes',{nome:n})} onEdit={(id,n)=>handleEdit('clientes',id,{nome:n})} list={clientes} onDel={id=>handleDel('clientes',id)} />
-                            <Card title="Funcionários" icon={Users}>
+                            
+                            <Card title="Funcionários Ativos" icon={Users}>
                                 <div className="flex justify-between items-center mb-4"><span className="text-sm text-gray-500">Total: {funcionarios.length}</span><Button size="sm" icon={UserPlus} onClick={()=>{setEditingUser(null); setShowUserModal(true);}}>Novo</Button></div>
                                 <div className="space-y-2 max-h-60 overflow-y-auto">
                                     {funcionarios.map(f=>(
-                                        <div key={f.id} className="flex justify-between p-3 border rounded items-center text-sm bg-white">
+                                        <div key={f.id} className={`flex justify-between p-3 border rounded items-center text-sm bg-white ${!f.approved && !f.isAdmin ? 'border-l-4 border-l-yellow-400' : ''}`}>
                                             <div>
                                                 <p className="font-semibold flex items-center">
                                                     {f.nome} 

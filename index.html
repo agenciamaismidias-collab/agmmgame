@@ -29,7 +29,7 @@
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.1/firebase-app.js";
         import { 
             getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, 
-            signOut, onAuthStateChanged, signInAnonymously
+            signOut, onAuthStateChanged, signInAnonymously, setPersistence, inMemoryPersistence
         } from "https://www.gstatic.com/firebasejs/10.13.1/firebase-auth.js";
         import { 
             getFirestore, collection, doc, setDoc, addDoc, getDoc, 
@@ -38,7 +38,7 @@
         import { 
             Settings, Users, Briefcase, ListTodo, ClipboardList, BarChart3, User, LogOut, 
             ArrowLeft, Plus, Check, Building, Trash2, Pencil, X, Calendar as CalendarIcon, 
-            Flag, AlertTriangle, Lock, ShieldCheck, UserCircle, UserPlus, Eye, Crown, Star
+            Flag, AlertTriangle, Lock, ShieldCheck, UserCircle, UserPlus, Eye, Crown, Star, Clock
         } from "https://esm.sh/lucide-react@0.292.0";
 
         const { useState, useEffect, useMemo } = React;
@@ -46,6 +46,7 @@
         // --- CONFIGURAÇÃO ---
         const appId = 'sistema-avaliacao-pautas';
         const SUPER_ADMINS = ['sabrinacruz.mkt@gmail.com'];
+        
         const firebaseConfig = {
             apiKey: "AIzaSyBCDi_zta4H3-WARJnOtmWneWe-9yGYJ2U",
             authDomain: "agmm-gamificacao.firebaseapp.com",
@@ -59,6 +60,8 @@
         const app = initializeApp(firebaseConfig);
         const db = getFirestore(app);
         const auth = getAuth(app);
+        
+        // App Secundária para criar usuários (Admin criando Funcionario) sem deslogar
         const secondaryApp = initializeApp(firebaseConfig, "SecondaryApp");
         const secondaryAuth = getAuth(secondaryApp);
 
@@ -129,14 +132,26 @@
                     if (isRegistering) {
                         const cred = await createUserWithEmailAndPassword(auth, email, password);
                         const isSuper = SUPER_ADMINS.includes(email);
+                        // Ao registrar, approved é false (a menos que seja super admin)
                         await setDoc(doc(db, `artifacts/${appId}/public/data/funcionarios`, cred.user.uid), {
-                            id: cred.user.uid, nome: name, email: email, isAdmin: isSuper, cargoId: '', clienteIds: [], timestamp: serverTimestamp()
+                            id: cred.user.uid, 
+                            nome: name, 
+                            email: email, 
+                            isAdmin: isSuper, 
+                            cargoId: '', 
+                            clienteIds: [], 
+                            approved: isSuper, // SUPER ADMIN já nasce aprovado, outros não
+                            timestamp: serverTimestamp()
                         });
                     } else {
                         await signInWithEmailAndPassword(auth, email, password);
                     }
                 } catch (err) {
-                    setError("Erro: " + err.message);
+                    let msg = err.message;
+                    if (err.code === 'auth/email-already-in-use') msg = "E-mail já cadastrado.";
+                    if (err.code === 'auth/weak-password') msg = "A senha deve ter pelo menos 6 caracteres.";
+                    if (err.code === 'auth/invalid-credential') msg = "E-mail ou senha incorretos.";
+                    setError(msg);
                     setLoading(false);
                 }
             };
@@ -154,7 +169,7 @@
             return (
                 <div className="min-h-screen flex items-center justify-center bg-gray-50 p-4">
                     <Card className="w-full max-w-md relative border-0 shadow-xl">
-                        <button onClick={()=>{setStep(1); setIsRegistering(false);}} className="absolute top-6 left-6 text-gray-400 hover:text-gray-600 flex items-center text-xs uppercase font-bold"><ArrowLeft className="w-3 h-3 mr-1"/> Voltar</button>
+                        <button onClick={()=>{setStep(1); setIsRegistering(false); setError('')}} className="absolute top-6 left-6 text-gray-400 hover:text-gray-600 flex items-center text-xs uppercase font-bold"><ArrowLeft className="w-3 h-3 mr-1"/> Voltar</button>
                         <div className="text-center mb-8 mt-4"><h1 className="text-2xl font-bold text-gray-800">Login {role === 'admin' ? 'Admin' : ''}</h1><p className="text-gray-500 text-sm">Insira suas credenciais</p></div>
                         <form onSubmit={handleAuth}>
                             {isRegistering && <Input label="Nome" value={name} onChange={e=>setName(e.target.value)} required />}
@@ -294,7 +309,6 @@
             const [scoreMap, setScoreMap] = useState({});
             const [loadingMap, setLoadingMap] = useState({});
 
-            // Inicializa scoreMap com o valor máximo
             useEffect(() => {
                 const map = {};
                 pendentes.forEach(l => { 
@@ -313,15 +327,11 @@
                 try {
                     await setDoc(doc(db, getPublicCollectionPath('lancamentos'), l.id), { 
                         status: 'Validado', 
-                        pontuacaoAtribuida: Number(scoreMap[l.id]), // Garante que salva o valor do input
+                        pontuacaoAtribuida: Number(scoreMap[l.id]), 
                         dataValidacao: serverTimestamp(), 
                         validadorId: userId 
                     }, {merge:true});
-                } catch(e){
-                    console.error(e);
-                } finally { 
-                    setLoadingMap(p => ({...p, [l.id]: false})); 
-                }
+                } catch(e){ console.error(e); } finally { setLoadingMap(p => ({...p, [l.id]: false})); }
             };
 
             if (pendentes.length === 0) return <div className="text-center p-8 bg-white rounded-xl border border-gray-200 text-gray-500">Tudo limpo! Nenhum lançamento pendente.</div>;
@@ -383,17 +393,12 @@
                 try {
                     if(editingId) await setDoc(doc(db, getPublicCollectionPath('atividadesBase'), editingId), data, {merge:true});
                     else await addDoc(collection(db, getPublicCollectionPath('atividadesBase')), data);
-                    
-                    // Reset
                     setNome(''); setCargoId(''); setPeso(''); setEditingId(null);
                 } catch(e){ console.error(e); }
             };
 
             const handleEdit = (item) => {
-                setNome(item.nome);
-                setCargoId(item.cargoId);
-                setPeso(item.pontuacaoMaxima);
-                setEditingId(item.id);
+                setNome(item.nome); setCargoId(item.cargoId); setPeso(item.pontuacaoMaxima); setEditingId(item.id);
             };
 
             const handleDelete = async (id) => {
@@ -464,22 +469,29 @@
 
             const handleCreateOrUpdateUser = async (data) => {
                 try {
+                    // IMPORTANTE: Configura persistência da App secundária para não afetar o login atual
+                    await setPersistence(secondaryAuth, inMemoryPersistence);
+
                     if (data.id) {
                         await setDoc(doc(db, getPublicCollectionPath('funcionarios'), data.id), {
-                            nome: data.nome, cargoId: data.cargoId, clienteIds: data.cliIds, isAdmin: data.isAdmin
+                            nome: data.nome, cargoId: data.cargoId, clienteIds: data.cliIds, isAdmin: data.isAdmin, approved: true // Ao editar, aprova automaticamente
                         }, { merge: true });
-                        alert("Usuário atualizado!");
+                        alert("Usuário atualizado e aprovado!");
                     } else {
                         const cred = await createUserWithEmailAndPassword(secondaryAuth, data.email, data.password);
                         await setDoc(doc(db, getPublicCollectionPath('funcionarios'), cred.user.uid), {
-                            id: cred.user.uid, nome: data.nome, email: data.email, cargoId: data.cargoId, clienteIds: data.cliIds, isAdmin: data.isAdmin, criadoPor: userId, timestamp: serverTimestamp()
+                            id: cred.user.uid, nome: data.nome, email: data.email, cargoId: data.cargoId, clienteIds: data.cliIds, isAdmin: data.isAdmin, approved: true, criadoPor: userId, timestamp: serverTimestamp()
                         });
                         await signOut(secondaryAuth);
                         alert("Usuário criado com sucesso!");
                     }
                     setShowUserModal(false);
                     setEditingUser(null);
-                } catch(e) { alert("Erro: " + e.message); }
+                } catch(e) { 
+                    let msg = e.message;
+                    if (e.code === 'auth/email-already-in-use') msg = "Este e-mail já está em uso.";
+                    alert("Erro: " + msg); 
+                }
             };
 
             const handleAdd = async (col, data) => addDoc(collection(db, getPublicCollectionPath(col)), { ...data, criadoPor: userId, timestamp: serverTimestamp() });
@@ -513,7 +525,23 @@
                             <SimpleForm title="Clientes" onAdd={n=>handleAdd('clientes',{nome:n})} onEdit={(id,n)=>handleEdit('clientes',id,{nome:n})} list={clientes} onDel={id=>handleDel('clientes',id)} />
                             <Card title="Funcionários" icon={Users}>
                                 <div className="flex justify-between items-center mb-4"><span className="text-sm text-gray-500">Total: {funcionarios.length}</span><Button size="sm" icon={UserPlus} onClick={()=>{setEditingUser(null); setShowUserModal(true);}}>Novo</Button></div>
-                                <div className="space-y-2 max-h-60 overflow-y-auto">{funcionarios.map(f=><div key={f.id} className="flex justify-between p-3 border rounded items-center text-sm bg-white"><div><p className="font-semibold">{f.nome}</p><p className="text-xs text-gray-500">{f.email}</p></div><div className="flex gap-1"><Button size="icon" type="ghost" onClick={()=>{setEditingUser(f); setShowUserModal(true);}}><Pencil className="w-3 h-3 text-blue-600"/></Button><Button size="icon" type="ghost" onClick={()=>handleDel('funcionarios', f.id)}><Trash2 className="w-3 h-3 text-red-500"/></Button></div></div>)}</div>
+                                <div className="space-y-2 max-h-60 overflow-y-auto">
+                                    {funcionarios.map(f=>(
+                                        <div key={f.id} className="flex justify-between p-3 border rounded items-center text-sm bg-white">
+                                            <div>
+                                                <p className="font-semibold flex items-center">
+                                                    {f.nome} 
+                                                    {!f.approved && !f.isAdmin && <span className="ml-2 text-[10px] bg-yellow-100 text-yellow-800 px-2 py-0.5 rounded-full font-bold">Pendente</span>}
+                                                </p>
+                                                <p className="text-xs text-gray-500">{f.email}</p>
+                                            </div>
+                                            <div className="flex gap-1">
+                                                <Button size="icon" type="ghost" onClick={()=>{setEditingUser(f); setShowUserModal(true);}}><Pencil className="w-3 h-3 text-blue-600"/></Button>
+                                                <Button size="icon" type="ghost" onClick={()=>handleDel('funcionarios', f.id)}><Trash2 className="w-3 h-3 text-red-500"/></Button>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
                             </Card>
                         </div>
                     )}
@@ -612,7 +640,7 @@
             return (
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
                     <div className="bg-white p-6 rounded-xl w-full max-w-md shadow-xl max-h-[90vh] overflow-y-auto">
-                        <h2 className="text-lg font-bold mb-4">{initialData ? 'Editar' : 'Novo'} Funcionário</h2>
+                        <h2 className="text-lg font-bold mb-4">{initialData ? 'Editar & Aprovar' : 'Novo'} Funcionário</h2>
                         <form onSubmit={e=>{e.preventDefault(); onSave(d);}}>
                             <Input label="Nome" value={d.nome} onChange={e=>setD({...d, nome:e.target.value})} required />
                             <Input label="Email" value={d.email} onChange={e=>setD({...d, email:e.target.value})} required disabled={!!initialData} />
@@ -620,7 +648,7 @@
                             <div className="mb-4"><label className="block text-xs font-bold text-gray-500">Cargo</label><select className="w-full border rounded p-2" value={d.cargoId} onChange={e=>setD({...d, cargoId:e.target.value})}><option value="">Selecione...</option>{cargos.map(c=><option key={c.id} value={c.id}>{c.nome}</option>)}</select></div>
                             <div className="mb-4"><label className="block text-xs font-bold text-gray-500">Clientes</label><div className="flex flex-wrap gap-2 mt-1">{clientes.map(c=><span key={c.id} onClick={()=>toggle(c.id)} className={`text-xs border px-2 py-1 rounded cursor-pointer ${d.cliIds.includes(c.id)?'bg-indigo-100 border-indigo-300 text-indigo-700':''}`}>{c.nome}</span>)}</div></div>
                             <label className="flex items-center gap-2 mb-6 text-sm"><input type="checkbox" checked={d.isAdmin} onChange={e=>setD({...d, isAdmin:e.target.checked})} /> Acesso Admin</label>
-                            <div className="flex justify-end gap-2"><Button type="secondary" onClick={onClose}>Cancelar</Button><Button>Salvar</Button></div>
+                            <div className="flex justify-end gap-2"><Button type="secondary" onClick={onClose}>Cancelar</Button><Button>Salvar & Aprovar</Button></div>
                         </form>
                     </div>
                 </div>
@@ -633,6 +661,16 @@
                 <h1 className="text-2xl font-bold text-red-700 mb-2">Acesso Negado</h1>
                 <p className="text-gray-600 mb-6">Esta conta não tem permissão de administrador.</p>
                 <Button onClick={onBack} type="danger">Voltar</Button>
+            </div>
+        );
+
+        // NOVA TELA: Aguardando Aprovação
+        const PendingApprovalView = ({ onLogout }) => (
+            <div className="flex h-screen flex-col items-center justify-center bg-yellow-50 text-center p-6">
+                <div className="bg-yellow-100 p-4 rounded-full mb-4"><Clock className="w-12 h-12 text-yellow-600"/></div>
+                <h1 className="text-2xl font-bold text-yellow-800 mb-2">Cadastro em Análise</h1>
+                <p className="text-gray-600 mb-6 max-w-md">Seu cadastro foi realizado com sucesso. Aguarde um administrador aprovar seu acesso e atribuir seu cargo e clientes.</p>
+                <Button onClick={onLogout} type="secondary">Sair</Button>
             </div>
         );
 
@@ -664,12 +702,11 @@
                             // CHECK DE SEGURANÇA: SE FOR O EMAIL DO SUPER ADMIN, FORÇA ISADMIN = TRUE
                             if(SUPER_ADMINS.includes(data.email)) {
                                 data.isAdmin = true;
+                                data.approved = true;
                             }
                             setProfile(data);
                         } else {
-                            // SE NÃO EXISTE PERFIL, CRIA UM TEMPORÁRIO EM MEMÓRIA COM ADMIN SE FOR O SUPER
-                            const isSuper = SUPER_ADMINS.includes(user.email);
-                            setProfile({ id: user.uid, nome: user.email || 'Usuário', email: user.email || '', isAdmin: isSuper });
+                            setProfile({ id: user.uid, nome: user.email || 'Usuário', email: user.email || '', isAdmin: false, approved: false });
                         }
                         setLoading(false);
                     });
@@ -703,6 +740,11 @@
             if(targetRole === 'admin') {
                 if(profile && !profile.isAdmin) return <AccessDenied onBack={handleLogout} />;
                 return <AdminView db={db} userId={user.uid} cargos={cargos} funcionarios={funcs} atividades={atividades} lancamentos={filteredLancs} clientes={clis} bandeiras={filteredFlags} logout={handleLogout} month={month} setMonth={setMonth} />;
+            }
+
+            // VERIFICAÇÃO DE APROVAÇÃO (Para Funcionários)
+            if (profile && !profile.approved && !profile.isAdmin) {
+                return <PendingApprovalView onLogout={handleLogout} />;
             }
 
             return <EmployeeView db={db} userId={user.uid} user={profile} cargos={cargos} atividades={atividades} lancamentos={filteredLancs} clientes={clis} bandeiras={filteredFlags} logout={handleLogout} month={month} setMonth={setMonth} />;

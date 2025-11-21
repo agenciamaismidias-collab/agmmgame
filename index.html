@@ -106,6 +106,7 @@
         // --- LOGIN ---
         const LoginScreen = ({ onRoleSelect }) => {
             const [step, setStep] = useState(1);
+            const [role, setRole] = useState(null);
             const [email, setEmail] = useState('');
             const [password, setPassword] = useState('');
             const [loading, setLoading] = useState(false);
@@ -114,6 +115,7 @@
             const [name, setName] = useState('');
 
             const handleRoleClick = (selectedRole) => {
+                setRole(selectedRole);
                 onRoleSelect(selectedRole);
                 setStep(2);
                 setError('');
@@ -153,7 +155,7 @@
                 <div className="min-h-screen flex items-center justify-center bg-gray-50 p-4">
                     <Card className="w-full max-w-md relative border-0 shadow-xl">
                         <button onClick={()=>{setStep(1); setIsRegistering(false);}} className="absolute top-6 left-6 text-gray-400 hover:text-gray-600 flex items-center text-xs uppercase font-bold"><ArrowLeft className="w-3 h-3 mr-1"/> Voltar</button>
-                        <div className="text-center mb-8 mt-4"><h1 className="text-2xl font-bold text-gray-800">Login</h1><p className="text-gray-500 text-sm">Insira suas credenciais</p></div>
+                        <div className="text-center mb-8 mt-4"><h1 className="text-2xl font-bold text-gray-800">Login {role === 'admin' ? 'Admin' : ''}</h1><p className="text-gray-500 text-sm">Insira suas credenciais</p></div>
                         <form onSubmit={handleAuth}>
                             {isRegistering && <Input label="Nome" value={name} onChange={e=>setName(e.target.value)} required />}
                             <Input label="E-mail" type="email" value={email} onChange={e=>setEmail(e.target.value)} required />
@@ -286,6 +288,81 @@
             );
         };
 
+        // --- VALIDAÇÃO DE LANÇAMENTO (COM INPUT) ---
+        const ValidacaoLancamento = ({ db, userId, lancamentos, atividadesBase, funcionarios }) => {
+            const pendentes = useMemo(() => lancamentos.filter(l => l.status === 'Pendente'), [lancamentos]);
+            const [scoreMap, setScoreMap] = useState({});
+            const [loadingMap, setLoadingMap] = useState({});
+
+            // Inicializa scoreMap com o valor máximo
+            useEffect(() => {
+                const map = {};
+                pendentes.forEach(l => { 
+                    if (scoreMap[l.id] === undefined) {
+                        const max = atividadesBase.find(a => a.id === l.atividadeBaseId)?.pontuacaoMaxima || 1;
+                        map[l.id] = max; 
+                    }
+                });
+                if (Object.keys(map).length > 0) {
+                    setScoreMap(prev => ({ ...prev, ...map }));
+                }
+            }, [pendentes, atividadesBase]); 
+
+            const handleVal = async (l) => {
+                setLoadingMap(p => ({...p, [l.id]: true}));
+                try {
+                    await setDoc(doc(db, getPublicCollectionPath('lancamentos'), l.id), { 
+                        status: 'Validado', 
+                        pontuacaoAtribuida: Number(scoreMap[l.id]), // Garante que salva o valor do input
+                        dataValidacao: serverTimestamp(), 
+                        validadorId: userId 
+                    }, {merge:true});
+                } catch(e){
+                    console.error(e);
+                } finally { 
+                    setLoadingMap(p => ({...p, [l.id]: false})); 
+                }
+            };
+
+            if (pendentes.length === 0) return <div className="text-center p-8 bg-white rounded-xl border border-gray-200 text-gray-500">Tudo limpo! Nenhum lançamento pendente.</div>;
+
+            return (
+                <div className="space-y-3">
+                    {pendentes.map(l => {
+                        const atv = atividadesBase.find(a => a.id === l.atividadeBaseId) || {};
+                        const func = funcionarios.find(f => f.id === l.funcionarioId) || {};
+                        const maxScore = Number(atv.pontuacaoMaxima) || 1;
+                        
+                        return (
+                            <div key={l.id} className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm flex flex-col sm:flex-row justify-between items-center gap-4">
+                                <div className="flex-1">
+                                    <p className="font-bold text-indigo-700 text-base">{atv.nome}</p>
+                                    <p className="text-sm text-gray-600 mt-1">Funcionário: <span className="font-semibold">{func.nome}</span></p>
+                                    <div className="flex items-center gap-3 mt-1 text-xs text-gray-400">
+                                        <span className="flex items-center"><CalendarIcon className="w-3 h-3 mr-1"/> {formatDate(l.dataConclusao)}</span>
+                                        {l.descricao && <span className="bg-gray-100 px-2 py-0.5 rounded text-gray-600 truncate max-w-[200px]">{l.descricao}</span>}
+                                    </div>
+                                </div>
+                                <div className="flex gap-2 items-center bg-gray-50 p-2 rounded-lg">
+                                    <span className="text-xs text-gray-500 font-bold uppercase mr-1">Nota:</span>
+                                    <input 
+                                        type="number" 
+                                        max={maxScore} 
+                                        min="0"
+                                        value={scoreMap[l.id] !== undefined ? scoreMap[l.id] : maxScore} 
+                                        onChange={e => setScoreMap(p => ({...p, [l.id]: e.target.value}))} 
+                                        className="w-12 text-center border rounded py-1 text-sm font-bold text-indigo-700 focus:ring-indigo-500 outline-none"
+                                    />
+                                    <span className="text-xs text-gray-400">/ {maxScore}</span>
+                                    <Button size="sm" onClick={()=>handleVal(l)} disabled={loadingMap[l.id]} icon={Check}>Validar</Button>
+                                </div>
+                            </div>
+                        );
+                    })}
+                </div>
+            );
+        };
+
         // --- FORMULÁRIO DE ATIVIDADE BASE (COMPLETO) ---
         const AtividadeBaseForm = ({ db, userId, cargos, atividadesBase }) => {
             const [nome, setNome] = useState(''); 
@@ -408,7 +485,6 @@
             const handleAdd = async (col, data) => addDoc(collection(db, getPublicCollectionPath(col)), { ...data, criadoPor: userId, timestamp: serverTimestamp() });
             const handleEdit = async (col, id, data) => setDoc(doc(db, getPublicCollectionPath(col), id), data, { merge: true });
             const handleDel = async (col, id) => { if(confirm('Excluir?')) deleteDoc(doc(db, getPublicCollectionPath(col), id)); };
-            const handleVal = async (l, score) => setDoc(doc(db, getPublicCollectionPath('lancamentos'), l.id), { status: 'Validado', pontuacaoAtribuida: score, validadorId: userId }, {merge:true});
 
             return (
                 <div className="p-6 min-h-screen max-w-7xl mx-auto">
@@ -426,25 +502,14 @@
 
                     {tab==='validacao' && (
                         <Card title="Pendentes" icon={ClipboardList}>
-                            <div className="space-y-4">
-                                {lancamentos.filter(l=>l.status==='Pendente').map(l => {
-                                    const atv = atividades.find(a=>a.id===l.atividadeBaseId);
-                                    const func = funcionarios.find(f=>f.id===l.funcionarioId);
-                                    return <div key={l.id} className="flex justify-between items-center p-3 border rounded"><div><p className="font-bold">{atv?.nome}</p><p className="text-sm">{func?.nome} - {formatDate(l.dataConclusao)}</p></div><div className="flex gap-2"><Button size="sm" onClick={()=>handleVal(l, atv?.pontuacaoMaxima)} icon={Check}>Validar (Max)</Button></div></div>
-                                })}
-                                {lancamentos.filter(l=>l.status==='Pendente').length === 0 && <p className="text-center text-gray-500">Nada pendente.</p>}
-                            </div>
+                            <ValidacaoLancamento db={db} userId={userId} lancamentos={lancamentos} atividadesBase={atividades} funcionarios={funcionarios} />
                         </Card>
                     )}
 
                     {tab==='cadastros' && (
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                            {/* Formulario Simples para Cargos e Clientes */}
                             <SimpleForm title="Cargos" onAdd={n=>handleAdd('cargos',{nome:n})} onEdit={(id,n)=>handleEdit('cargos',id,{nome:n})} list={cargos} onDel={id=>handleDel('cargos',id)} />
-                            
-                            {/* Formulario Completo para Atividades */}
                             <AtividadeBaseForm db={db} userId={userId} cargos={cargos} atividadesBase={atividades} />
-                            
                             <SimpleForm title="Clientes" onAdd={n=>handleAdd('clientes',{nome:n})} onEdit={(id,n)=>handleEdit('clientes',id,{nome:n})} list={clientes} onDel={id=>handleDel('clientes',id)} />
                             <Card title="Funcionários" icon={Users}>
                                 <div className="flex justify-between items-center mb-4"><span className="text-sm text-gray-500">Total: {funcionarios.length}</span><Button size="sm" icon={UserPlus} onClick={()=>{setEditingUser(null); setShowUserModal(true);}}>Novo</Button></div>

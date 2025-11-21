@@ -45,20 +45,26 @@
 
         // --- CONFIGURAÇÃO ---
         const appId = 'sistema-avaliacao-pautas';
+        
+        // LISTA DE SUPER ADMINS - Garante acesso total independente do banco
         const SUPER_ADMINS = ['sabrinacruz.mkt@gmail.com'];
+        
+        // Configuração do Firebase (ATUALIZADA)
         const firebaseConfig = {
-            apiKey: "AIzaSyBZ76yd8RbRQVjbJ115QqL3oDztxedq0OY",
-            authDomain: "agmm-16a91.firebaseapp.com",
-            projectId: "agmm-16a91",
-            storageBucket: "agmm-16a91.firebasestorage.app",
-            messagingSenderId: "784096179999",
-            appId: "1:784096179999:web:68597a2a52a668e224622a",
-            measurementId: "G-9K9X7QT5SS"
+            apiKey: "AIzaSyBCDi_zta4H3-WARJnOtmWneWe-9yGYJ2U",
+            authDomain: "agmm-gamificacao.firebaseapp.com",
+            projectId: "agmm-gamificacao",
+            storageBucket: "agmm-gamificacao.firebasestorage.app",
+            messagingSenderId: "833753514640",
+            appId: "1:833753514640:web:70b570fd73f470d3468e15",
+            measurementId: "G-Y8LCBFR78Y"
         };
 
         const app = initializeApp(firebaseConfig);
         const db = getFirestore(app);
         const auth = getAuth(app);
+        
+        // App Secundária para criar usuários sem deslogar o admin atual
         const secondaryApp = initializeApp(firebaseConfig, "SecondaryApp");
         const secondaryAuth = getAuth(secondaryApp);
 
@@ -103,7 +109,7 @@
             </div>
         );
 
-        // --- LOGIN ---
+        // --- TELA DE LOGIN (SELEÇÃO DE PERFIL + LOGIN REAL) ---
         const LoginScreen = ({ onRoleSelect }) => {
             const [step, setStep] = useState(1);
             const [role, setRole] = useState(null);
@@ -116,17 +122,19 @@
 
             const handleRoleClick = (selectedRole) => {
                 setRole(selectedRole);
-                onRoleSelect(selectedRole);
+                onRoleSelect(selectedRole); // Notifica o App sobre a intenção
                 setStep(2);
                 setError('');
             };
 
             const handleAuth = async (e) => {
                 e.preventDefault();
-                setLoading(true); setError('');
+                setLoading(true); 
+                setError('');
                 try {
                     if (isRegistering) {
                         const cred = await createUserWithEmailAndPassword(auth, email, password);
+                        // Força admin se for o email do super admin
                         const isSuper = SUPER_ADMINS.includes(email);
                         await setDoc(doc(db, `artifacts/${appId}/public/data/funcionarios`, cred.user.uid), {
                             id: cred.user.uid, nome: name, email: email, isAdmin: isSuper, cargoId: '', clienteIds: [], timestamp: serverTimestamp()
@@ -142,10 +150,21 @@
 
             if(step === 1) return (
                 <div className="min-h-screen flex flex-col items-center justify-center bg-gray-50 p-4">
-                    <div className="text-center mb-10"><h1 className="text-4xl font-bold text-indigo-900 mb-2 tracking-tight">Sistema de Pautas</h1><p className="text-gray-500">Selecione seu perfil de acesso</p></div>
+                    <div className="text-center mb-10">
+                        <h1 className="text-4xl font-bold text-indigo-900 mb-2 tracking-tight">Sistema de Pautas</h1>
+                        <p className="text-gray-500">Selecione seu perfil de acesso</p>
+                    </div>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-3xl w-full mb-8">
-                        <div onClick={()=>handleRoleClick('admin')} className="bg-white p-8 rounded-2xl shadow-sm border cursor-pointer hover:border-indigo-500 transition group text-center hover:shadow-md"><div className="bg-indigo-50 p-4 rounded-full mb-4 mx-auto w-16 group-hover:bg-indigo-100 transition"><ShieldCheck className="w-8 h-8 text-indigo-600"/></div><h2 className="text-xl font-bold text-gray-800">Administrador</h2><p className="text-sm text-gray-500 mt-2">Gestão e Validação</p></div>
-                        <div onClick={()=>handleRoleClick('employee')} className="bg-white p-8 rounded-2xl shadow-sm border cursor-pointer hover:border-green-500 transition group text-center hover:shadow-md"><div className="bg-green-50 p-4 rounded-full mb-4 mx-auto w-16 group-hover:bg-green-100 transition"><UserCircle className="w-8 h-8 text-green-600"/></div><h2 className="text-xl font-bold text-gray-800">Funcionário</h2><p className="text-sm text-gray-500 mt-2">Produção e Lançamentos</p></div>
+                        <div onClick={()=>handleRoleClick('admin')} className="bg-white p-8 rounded-2xl shadow-sm border cursor-pointer hover:border-indigo-500 transition group text-center hover:shadow-md">
+                            <div className="bg-indigo-50 p-4 rounded-full mb-4 mx-auto w-16 group-hover:bg-indigo-100 transition"><ShieldCheck className="w-8 h-8 text-indigo-600"/></div>
+                            <h2 className="text-xl font-bold text-gray-800">Administrador</h2>
+                            <p className="text-sm text-gray-500 mt-2">Gestão e Validação</p>
+                        </div>
+                        <div onClick={()=>handleRoleClick('employee')} className="bg-white p-8 rounded-2xl shadow-sm border cursor-pointer hover:border-green-500 transition group text-center hover:shadow-md">
+                            <div className="bg-green-50 p-4 rounded-full mb-4 mx-auto w-16 group-hover:bg-green-100 transition"><UserCircle className="w-8 h-8 text-green-600"/></div>
+                            <h2 className="text-xl font-bold text-gray-800">Funcionário</h2>
+                            <p className="text-sm text-gray-500 mt-2">Produção e Lançamentos</p>
+                        </div>
                     </div>
                 </div>
             );
@@ -154,7 +173,10 @@
                 <div className="min-h-screen flex items-center justify-center bg-gray-50 p-4">
                     <Card className="w-full max-w-md relative border-0 shadow-xl">
                         <button onClick={()=>{setStep(1); setIsRegistering(false);}} className="absolute top-6 left-6 text-gray-400 hover:text-gray-600 flex items-center text-xs uppercase font-bold"><ArrowLeft className="w-3 h-3 mr-1"/> Voltar</button>
-                        <div className="text-center mb-8 mt-4"><h1 className="text-2xl font-bold text-gray-800">Login {role === 'admin' ? 'Admin' : ''}</h1><p className="text-gray-500 text-sm">Insira suas credenciais</p></div>
+                        <div className="text-center mb-8 mt-4">
+                            <h1 className="text-2xl font-bold text-gray-800">Login {role === 'admin' ? 'Admin' : ''}</h1>
+                            <p className="text-gray-500 text-sm">Insira suas credenciais</p>
+                        </div>
                         <form onSubmit={handleAuth}>
                             {isRegistering && <Input label="Nome" value={name} onChange={e=>setName(e.target.value)} required />}
                             <Input label="E-mail" type="email" value={email} onChange={e=>setEmail(e.target.value)} required />
@@ -163,14 +185,16 @@
                             <Button className="w-full h-10" disabled={loading}>{loading ? 'Processando...' : (isRegistering ? 'Criar Conta' : 'Entrar')}</Button>
                         </form>
                         <div className="text-center mt-4 pt-4 border-t border-gray-100">
-                            <button onClick={() => { setIsRegistering(!isRegistering); setError(''); }} className="text-xs text-gray-500 hover:text-indigo-600 font-medium">{isRegistering ? 'Já possui conta? Faça Login' : 'Não tem acesso? Cadastre-se aqui'}</button>
+                            <button onClick={() => { setIsRegistering(!isRegistering); setError(''); }} className="text-xs text-gray-500 hover:text-indigo-600 font-medium">
+                                {isRegistering ? 'Já possui conta? Faça Login' : 'Não tem acesso? Cadastre-se aqui'}
+                            </button>
                         </div>
                     </Card>
                 </div>
             );
         };
 
-        // --- ADMIN COMPONENTS ---
+        // --- GRÁFICOS E VISUALIZAÇÕES ---
         const RankingChart = ({ data }) => {
             const maxScore = Math.max(...data.map(f => f.score || 0), 1); 
             return (
@@ -290,7 +314,7 @@
         const AdminView = ({ db, userId, cargos, funcionarios, atividades, lancamentos, clientes, bandeiras, logout, month, setMonth }) => {
             const [tab, setTab] = useState('dashboard');
             const [showUserModal, setShowUserModal] = useState(false);
-            const [editingUser, setEditingUser] = useState(null); // Estado para editar user
+            const [editingUser, setEditingUser] = useState(null);
             
             const dashData = useMemo(() => {
                 const d = funcionarios.map(f => ({ ...f, pts: 0, max: 0, count: 0, flags: 0, score: 0 }));
@@ -313,13 +337,11 @@
             const handleCreateOrUpdateUser = async (data) => {
                 try {
                     if (data.id) {
-                        // Update existente no Firestore
                         await setDoc(doc(db, getPublicCollectionPath('funcionarios'), data.id), {
                             nome: data.nome, cargoId: data.cargoId, clienteIds: data.cliIds, isAdmin: data.isAdmin
                         }, { merge: true });
                         alert("Usuário atualizado!");
                     } else {
-                        // Criar novo usuário com Auth Secundário
                         const cred = await createUserWithEmailAndPassword(secondaryAuth, data.email, data.password);
                         await setDoc(doc(db, getPublicCollectionPath('funcionarios'), cred.user.uid), {
                             id: cred.user.uid, nome: data.nome, email: data.email, cargoId: data.cargoId, clienteIds: data.cliIds, isAdmin: data.isAdmin, criadoPor: userId, timestamp: serverTimestamp()
@@ -418,6 +440,7 @@
                                     <label className="text-xs font-bold text-gray-500">Atividade</label>
                                     <select className="w-full border rounded p-2" value={form.atvId} onChange={e=>setForm({...form, atvId:e.target.value})} required>
                                         <option value="">Selecione...</option>
+                                        {/* MOSTRA APENAS O NOME, SEM PONTOS */}
                                         {myAtvs.map(a=><option key={a.id} value={a.id}>{a.nome}</option>)}
                                     </select>
                                 </div>
@@ -518,13 +541,19 @@
                     const unsubP = onSnapshot(doc(db, getPublicCollectionPath('funcionarios'), user.uid), d => {
                         if(d.exists()) {
                             const data = d.data();
-                            if(SUPER_ADMINS.includes(data.email)) data.isAdmin = true;
+                            // CHECK DE SEGURANÇA: SE FOR O EMAIL DO SUPER ADMIN, FORÇA ISADMIN = TRUE
+                            if(SUPER_ADMINS.includes(data.email)) {
+                                data.isAdmin = true;
+                            }
                             setProfile(data);
                         } else {
-                            setProfile({ id: user.uid, nome: user.email || 'Usuário', email: user.email || '', isAdmin: false });
+                            // SE NÃO EXISTE PERFIL, CRIA UM TEMPORÁRIO EM MEMÓRIA COM ADMIN SE FOR O SUPER
+                            const isSuper = SUPER_ADMINS.includes(user.email);
+                            setProfile({ id: user.uid, nome: user.email || 'Usuário', email: user.email || '', isAdmin: isSuper });
                         }
                         setLoading(false);
                     });
+                    
                     const q = (n) => query(collection(db, getPublicCollectionPath(n)));
                     const uC = onSnapshot(q('cargos'), s => setCargos(s.docs.map(d=>({id:d.id,...d.data()}))));
                     const uA = onSnapshot(q('atividadesBase'), s => setAtividades(s.docs.map(d=>({id:d.id,...d.data()}))));
